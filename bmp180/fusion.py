@@ -1,5 +1,7 @@
 from smbus2 import SMBus
 import time
+import socket
+from socket import AF_INET,SOCK_STREAM
 
 bus = SMBus(1) # Establece comunicación con el puerto I2C de la Raspberry
 
@@ -7,7 +9,8 @@ bus = SMBus(1) # Establece comunicación con el puerto I2C de la Raspberry
 DEVICE_ADDRESS,REGISTRO,GET_DATO = 0x77,0xf4,0xf6
 OSS,Po = 3,1013.25
 
-# Obtiene los valore de la tabla de calibración de coeficientes
+# Obtiene los valores de la tabla de calibración de coeficientes
+# con signo
 def configure_short(code):
     msb=bus.read_byte_data(DEVICE_ADDRESS,code)
     lsb=bus.read_byte_data(DEVICE_ADDRESS,code+1)
@@ -19,6 +22,8 @@ def configure_short(code):
     print(f"value {hex(code)} = {value}") # Solo use esto para ver si si recorria bien los datos
     return value
 
+# Obtiene los valores de la tabla de calibración de coeficientes
+# sin signo
 def configure_unsigned(code):
     msb=bus.read_byte_data(DEVICE_ADDRESS,code)
     lsb=bus.read_byte_data(DEVICE_ADDRESS,code+1)
@@ -36,6 +41,8 @@ def read_data(modo):
     print(f"Datos leidos de {modo}: {data}")
 """
 
+# Esfunción sirve para obtener la temperatura y convertirla a valores
+# en Celcius
 def temperatura():
     bus.write_byte_data(DEVICE_ADDRESS,REGISTRO,0x2e)
     time.sleep(0.05)
@@ -52,6 +59,8 @@ def temperatura():
     temp=(int(b5+8))>>4
     return b5,temp/10
 
+# Esta función obitene el valor de la presión del modulo y la
+# convierte en valores de m
 def presion(b5):
     bus.write_byte_data(DEVICE_ADDRESS,REGISTRO,0x34+(OSS<<6))
     msb=bus.read_byte_data(DEVICE_ADDRESS,GET_DATO)
@@ -79,10 +88,18 @@ def presion(b5):
     p=p + (int(x1+x2+3791)>>4)
     return p/100
 
+# Obtiene el valor de la altura en base a la presión calculada
 def altura(p):
     altitude=44330*(1-((p/Po)**(1/5.255)))
     return altitude
-    
+
+def enviar_mensaje(client,msg,valor):
+    msg += "\n"
+    client.sendall(msg.encode())
+    time.sleep(0.05)
+    valor_codificado=str(valor).encode
+    client.sendall(valor_codificado)
+# Función principal
 if __name__=="__main__":
     
     nombres=["ac1","ac2","ac3","ac4","ac5","ac6",
@@ -91,25 +108,57 @@ if __name__=="__main__":
                  0xba,0xbc,0xbe]
 
     coeficientes={}
-    for (num,name) in enumerate(nombres):
-        if (name=="ac4") or (name=="ac5") or (name=="ac6"):
-            coeficientes[name]=configure_unsigned(direcciones[num])
-        else:
-            coeficientes[name]=configure_short(direcciones[num])
+    try:
+        # Se obtiene la tabla de constantes de calibración
+        for (num,name) in enumerate(nombres):
+            if (name=="ac4") or (name=="ac5") or (name=="ac6"):
+                coeficientes[name]=configure_unsigned(direcciones[num])
+            else:
+                coeficientes[name]=configure_short(direcciones[num])
+    except Exception as e:
+        print("Algo salió mal al asignar la tabla de" +
+              f"calibración de coeficientes\n{e}")
+        exit(-1)
+        
     time.sleep(0.1)
     print("")
-    
+
+    conectar=True
+
+    while conectar:
+        try:
+            HOST = input("Ingrese la dirección ip del servidor: ")
+            PORT = int(input("Ingrese el puerto del socket del servidor: "))
+            client_s=socket.socket(AF_INET,SOCK_STREAM)
+            client_s.connect((HOST, PORT))
+            conectar=False
+        except KeyboardInterrupt:
+            bus.close()
+            client_s.close()
+            print("¡Retirada estrategica!")
+            exit(-1)
+        except Exception as e:
+            client_s.close()
+            print(f"Algo salió mal al intentar conectarse al servidor\n{e}")
+        
     while True:
         try:
             b5,t=temperatura()
-            time.sleep(0.5)
+            time.sleep(0.1)
             p=presion(b5)
-            time.sleep(0.5)
-            al=altura(p)
-            print(f"Temperatura = {t}C\nPresión = {p}mbar")
-            print(f"Altura = {al}\n")
+            time.sleep(0.1)
+            #al=altura(p)
+            enviar_mensaje(client_s,"Temperatura",t)
+            enviar_mensaje(client_s,"Presion",p)
+            # print(f"Temperatura = {t}C\nPresión = {p}mbar")
+            # print(f"Altura = {al}\n")
         except KeyboardInterrupt:
+            msg="Adios_garuda\n"
+            client_s.sendall(msg.encode())
+            client_s.close()
+            bus.close()
             print("\nPrograma finalizado a proposito.")
             exit(-1)
         except Exception as e:
-            print(f"La cagaste: {e}")
+            print("No se pueden leer los valores por alguna razon\n{e}")
+            time.sleep(1)
