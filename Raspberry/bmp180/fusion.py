@@ -7,7 +7,7 @@ bus = SMBus(1) # Establece comunicación con el puerto I2C de la Raspberry
 
 # Constantes
 DEVICE_ADDRESS,REGISTRO,GET_DATO = 0x77,0xf4,0xf6
-OSS,Po = 3,1013.25
+OSS,OSD,Po = 2,0.014,1013.25
 
 # Obtiene los valores de la tabla de calibración de coeficientes
 # con signo
@@ -45,7 +45,7 @@ def read_data(modo):
 # en Celcius
 def temperatura():
     bus.write_byte_data(DEVICE_ADDRESS,REGISTRO,0x2e)
-    time.sleep(0.05)
+    time.sleep(0.005)
     msb=bus.read_byte_data(DEVICE_ADDRESS,GET_DATO)
     lsb=bus.read_byte_data(DEVICE_ADDRESS,GET_DATO+1)
     ut=(msb<<8)+lsb
@@ -63,6 +63,7 @@ def temperatura():
 # convierte en valores de m
 def presion(b5):
     bus.write_byte_data(DEVICE_ADDRESS,REGISTRO,0x34+(OSS<<6))
+    time.sleep(OSD)
     msb=bus.read_byte_data(DEVICE_ADDRESS,GET_DATO)
     lsb=bus.read_byte_data(DEVICE_ADDRESS,GET_DATO+1)
     xlsb=bus.read_byte_data(DEVICE_ADDRESS,GET_DATO+2)
@@ -93,12 +94,19 @@ def altura(p):
     altitude=44330*(1-((p/Po)**(1/5.255)))
     return altitude
 
+def conversiones(t,p,a):
+    far = (1.8*t) + 32
+    hg = p*0.0295200830714
+    foots = a*3.28084
+    return far,hg,foots
+    
 def enviar_mensaje(client,msg,valor):
     msg += "\n"
     client.sendall(msg.encode())
     time.sleep(0.05)
-    valor_codificado=str(valor).encode
-    client.sendall(valor_codificado)
+    #valor_codificado=str(valor).encode
+    client.sendall(f"{valor}\n".encode('utf-8'))
+    
 # Función principal
 if __name__=="__main__":
     
@@ -144,14 +152,18 @@ if __name__=="__main__":
     while True:
         try:
             b5,t=temperatura()
-            time.sleep(0.1)
             p=presion(b5)
-            time.sleep(0.1)
-            #al=altura(p)
+            al=altura(p)
+            temp2,pres2,alt2 =conversiones(t,p,al)
             enviar_mensaje(client_s,"Temperatura",t)
             enviar_mensaje(client_s,"Presion",p)
+            enviar_mensaje(client_s,"Altura",al)
+            enviar_mensaje(client_s,"Temp2",temp2)
+            enviar_mensaje(client_s,"Pres2",pres2)
+            enviar_mensaje(client_s,"Alt2",alt2)
             # print(f"Temperatura = {t}C\nPresión = {p}mbar")
             # print(f"Altura = {al}\n")
+            time.sleep(0.5)
         except KeyboardInterrupt:
             msg="Adios_garuda\n"
             client_s.sendall(msg.encode())
@@ -160,5 +172,5 @@ if __name__=="__main__":
             print("\nPrograma finalizado a proposito.")
             exit(-1)
         except Exception as e:
-            print("No se pueden leer los valores por alguna razon\n{e}")
+            print(f"No se pueden leer los valores por alguna razon\n{e}")
             time.sleep(1)
