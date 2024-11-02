@@ -7,7 +7,7 @@ bus = SMBus(1) # Establece comunicación con el puerto I2C de la Raspberry
 
 # Constantes
 DEVICE_ADDRESS,REGISTRO,GET_DATO = 0x77,0xf4,0xf6
-OSS,OSD,Po = 2,0.026,1013
+OSS,OSD,Po = 3,0.05,1013
 
 # Obtiene los valores de la tabla de calibración de coeficientes
 # con signo
@@ -32,14 +32,11 @@ def configure_unsigned(code):
     value = (msb << 8) + lsb
     print(f"value {hex(code)} = {value}") # Solo use esto para ver si si recorria bien los datos
     return value
-    
-"""
-# Función en desuso        
-def read_data(modo):    
-    bus.write_byte_data(DEVICE_ADDRESS,REGISTRO,modo)
-    data=bus.read_byte_data(DEVICE_ADDRESS,GET_DATO)
-    print(f"Datos leidos de {modo}: {data}")
-"""
+
+# Forza a un número a tener valores de 32 bits
+def bits32(numero):
+    num=int(numero)
+    return (num & 0xffffffff)
 
 # Esfunción sirve para obtener la temperatura y convertirla a valores
 # en Celcius
@@ -56,7 +53,7 @@ def temperatura():
     # print(f"x2 = {x2}")
     b5=x1+x2
     # print(f"b5 = {b5}\n")
-    temp=(int(b5+8))>>4
+    temp=(bits32(b5+8))>>4
     return b5,temp/10
 
 # Esta función obitene el valor de la presión del modulo y la
@@ -70,23 +67,23 @@ def presion(b5):
     up=((msb<<16) + (lsb<<8) + xlsb)>>(8-OSS)
     # print(f"Dato bruto presion: {up}")
     b6=b5-4000
-    x1=(( int( coeficientes["b2"]*(b6**2)) )>>12)>>11
+    x1=(( bits32(coeficientes["b2"]*(b6**2)) )>>12)>>11
     x2=(coeficientes["ac2"]*b6)
-    x3=( int((x1+x2)+2) )>>2
+    x3=( bits32((x1+x2)+2) )>>2
     b3=(((coeficientes["ac1"]*4 + x3)>>OSS)+2)/4
-    x1=( int(coeficientes["ac3"]*b6) )>>13
-    x2=(( int( coeficientes["b2"]*(b6**2)) )>>12)>>16
+    x1=( bits32(coeficientes["ac3"]*b6) )>>13
+    x2=(( bits32(coeficientes["b2"]*(b6**2)) )>>12)>>16
     x3=((x1+x2)+2)>>2
     b4=(coeficientes["ac4"]*((x3+32768)&0xffffffff))>>15
-    b7=(( int(up-b3) )&0xffffffff)*(50000>>OSS)
+    b7=(( bits32(up-b3) )&0xffffffff)*(50000>>OSS)
     if b7<0x80000000:
         p=(b7*2)/b4
     else:
         p=(b7/b4)*2
-    x1=( int(p) >>8)*( int(p) >>8)
+    x1=( bits32(p) >>8)*( bits32(p) >>8)
     x1=(x1*3038)>>16
-    x2=int(-7357*p) >>16
-    p=p + ((int(x1+x2+3791))>>4)
+    x2=bits32(-7357*p) >>16
+    p=p + (( bits32(x1+x2+3791) )>>4)
     return p/100
 
 # Obtiene el valor de la altura en base a la presión calculada
