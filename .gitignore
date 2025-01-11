@@ -1,2 +1,4 @@
 # Ignorando archivos
 *.toml
+
+**/reinicio/
