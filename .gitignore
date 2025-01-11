@@ -1,5 +1,3 @@
 # Ignorando archivos
 *.toml
 
-**/reinicio/
-ProyectoDesliz/.CondaPkg
